@@ -1,7 +1,7 @@
 //! Deterministic testing backend — seeded ChaCha12 RNG, single-thread only.
 
-// This module is only compiled under `cfg(test)`, so `std` is always linked
-// even though the crate is `#![no_std]`.
+// This module should only be compiled under `cfg(test)`, so `std` is always
+// linked even though the crate is `#![no_std]`.
 extern crate std;
 
 pub use crate::util::{inner_u32, inner_u64};
