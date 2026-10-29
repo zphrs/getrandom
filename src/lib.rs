@@ -39,6 +39,8 @@ mod util;
 #[cfg(feature = "std")]
 mod error_std_impls;
 
+#[cfg(all(getrandom_backend = "deterministic_testing", feature = "unsafe_deterministic_testing"))]
+pub use backends::set_thread_seed;
 pub use crate::error::Error;
 
 /// Fill `dest` with random bytes from the system's preferred random number source.
