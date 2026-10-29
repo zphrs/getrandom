@@ -10,7 +10,7 @@ use chacha20::ChaCha12Rng;
 use core::mem::MaybeUninit;
 use rand_core::{Rng, SeedableRng};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, hash_map::Entry},
     sync::{Mutex, OnceLock},
 };
 
@@ -39,6 +39,31 @@ pub fn getrandom_inner(dest: &mut [MaybeUninit<u8>]) -> Result<(), Error> {
     Ok(())
 }
 
+
+/// Seeds the calling thread's RNG with `seed` instead of the default
+/// `[42; 32]`, so that threads which would otherwise draw identical streams
+/// draw independent ones. Threads that never call this keep the default seed.
+///
+/// # Panics
+///
+/// Panics if the calling thread has already drawn from (or seeded) its RNG.
+pub fn set_thread_seed(seed: u64) {
+    let id = std::thread::current().id();
+    let rng = RNG.get_or_init(|| HashMap::new().into());
+    let seeded = match rng.lock().unwrap().entry(id) {
+        Entry::Occupied(_) => false,
+        Entry::Vacant(entry) => {
+            entry.insert(ChaCha12Rng::seed_from_u64(seed));
+            true
+        }
+    };
+    // panics only once the lock is released, so it isn't poisoned
+    assert!(
+        seeded,
+        "set_thread_seed must be called before the thread's first draw"
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -46,7 +71,7 @@ mod tests {
     #[test]
     fn test_deterministic() {
         let mut buf = [0u8; 32];
-        crate::fill(&mut buf).unwrap();
+        crate::getrandom(&mut buf).unwrap();
         assert_eq!(
             [
                 0x1b, 0x8c, 0x20, 0xcd, 0xe2, 0xdb, 0xb4, 0x3c, 0xd3, 0xc7, 0x9, 0xb2, 0x90, 0xac,
@@ -61,7 +86,7 @@ mod tests {
     fn test_deterministic_multithread() {
         let jh = thread::spawn(|| {
             let mut buf = [0u8; 32];
-            crate::fill(&mut buf).unwrap();
+            crate::getrandom(&mut buf).unwrap();
             assert_eq!(
                 [
                     0x1b, 0x8c, 0x20, 0xcd, 0xe2, 0xdb, 0xb4, 0x3c, 0xd3, 0xc7, 0x9, 0xb2, 0x90,
@@ -73,7 +98,7 @@ mod tests {
         });
         let jh2 = thread::spawn(|| {
             let mut buf = [0u8; 32];
-            crate::fill(&mut buf).unwrap();
+            crate::getrandom(&mut buf).unwrap();
             assert_eq!(
                 [
                     0x1b, 0x8c, 0x20, 0xcd, 0xe2, 0xdb, 0xb4, 0x3c, 0xd3, 0xc7, 0x9, 0xb2, 0x90,
@@ -86,5 +111,38 @@ mod tests {
 
         jh.join().unwrap();
         jh2.join().unwrap();
+    }
+
+    #[test]
+    fn test_set_thread_seed() {
+        fn draw(seed: Option<u64>) -> [u8; 32] {
+            thread::spawn(move || {
+                if let Some(seed) = seed {
+                    set_thread_seed(seed);
+                }
+                let mut buf = [0u8; 32];
+                crate::getrandom(&mut buf).unwrap();
+                buf
+            })
+            .join()
+            .unwrap()
+        }
+        let (a, b) = (draw(Some(1)), draw(Some(2)));
+        assert_ne!(a, b, "different seeds draw different streams");
+        assert_eq!(a, draw(Some(1)), "same seed, same stream");
+        assert_ne!(a, draw(None), "seeded differs from the default");
+    }
+
+    #[test]
+    #[should_panic(expected = "before the thread's first draw")]
+    fn test_set_thread_seed_after_draw_panics() {
+        thread::spawn(|| {
+            let mut buf = [0u8; 1];
+            crate::getrandom(&mut buf).unwrap();
+            set_thread_seed(1);
+        })
+        .join()
+        .map_err(std::panic::resume_unwind)
+        .unwrap();
     }
 }

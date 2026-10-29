@@ -226,6 +226,8 @@ mod custom;
 mod error_impls;
 
 pub use crate::error::Error;
+#[cfg(feature = "unsafe_deterministic_testing")]
+pub use imp::set_thread_seed;
 
 // System-specific implementations.
 //
