@@ -33,6 +33,8 @@ pub use rand_core;
 #[cfg(feature = "sys_rng")]
 pub use sys_rng::SysRng;
 
+#[cfg(all(getrandom_backend = "deterministic_testing", feature = "unsafe_deterministic_testing"))]
+pub use backends::set_thread_seed;
 pub use crate::error::{Error, RawOsError};
 
 /// Attribute macros for overwriting the core functionality of this crate.
